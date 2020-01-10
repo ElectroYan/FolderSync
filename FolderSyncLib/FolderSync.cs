@@ -15,6 +15,11 @@ namespace FolderSyncLib
     {
         Copy, CopyAndDelete
     }
+
+    public enum Logging
+    {
+        None = 0, Error = 1, Directory = 2, File = 4, Finished = 8
+    }
     public class FolderSync
     {
         public delegate void DirectorySyncing(string path);
@@ -40,7 +45,8 @@ namespace FolderSyncLib
 
 
 
-        private string excludedPathsFilePath = "excluded_paths.cfg";
+        private string excludedPathsFilePath;
+        private Logging logLevel;
         public string Name { get; set; }
         public string SourcePath { get; private set; }
         public string DestinationPath { get; private set; }
@@ -53,9 +59,15 @@ namespace FolderSyncLib
         /// </summary>
         /// <param name="source">Source path</param>
         /// <param name="destination">Destination path</param>
-        public FolderSync(string name,string source, string destination, SyncMode mode)
+        public FolderSync(string name, string source, string destination, SyncMode mode, Logging log = Logging.Error | Logging.Finished)
         {
-            ExcludedPaths = new List<string>();
+            logLevel = log;
+            if (name != "")
+            {
+                excludedPathsFilePath = name + "_excluded_paths.cfg";
+            }
+            else
+                ExcludedPaths = new List<string>();
             cancel = false;
             if (destination.Contains(source))
                 throw new Exception("Destination path can not be located in source path.");
@@ -80,10 +92,23 @@ namespace FolderSyncLib
         /// <summary>
         /// Starts the synchronization.
         /// </summary>
-        public void StartSync()
+        public void Start()
         {
             SyncFilesystem(SourcePath, DestinationPath);
             OnFinished?.Invoke();
+            if (GetBinary(logLevel, 4))
+                WriteLog("Sync finished");
+        }
+
+        public Task StartAsync()
+        {
+            Task sync = new Task(()=>SyncFilesystem(SourcePath, DestinationPath));
+            sync.Start();
+            OnFinished?.Invoke();
+            if (GetBinary(logLevel, 4))
+                WriteLog("Sync finished");
+
+            return sync;
         }
 
         private bool cancel;
@@ -98,9 +123,13 @@ namespace FolderSyncLib
                 return;
             foreach (var file in Directory.GetFiles(sourcePath).Where(x=>!ExcludedPaths.Contains(x)))
             {
+                if (cancel)
+                    return;
                 try
                 {
                     FileSync?.Invoke(file);
+                    if (GetBinary(logLevel, 3))
+                        WriteLog(file);
 
                     //string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
                     string newDestFilePath = file.Replace(sourcePath, destPath);
@@ -130,6 +159,8 @@ namespace FolderSyncLib
                 try
                 {
                     DirectorySync?.Invoke(dir);
+                    if (GetBinary(logLevel, 2))
+                        WriteLog(dir);
 
                     //string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
                     string newDestPath = dir.Replace(sourcePath, destPath);
@@ -156,7 +187,8 @@ namespace FolderSyncLib
         private void SomeError(string msg)
         {
             OnError?.Invoke(msg);
-            WriteLog(msg + "\n");
+            if(GetBinary(logLevel, 1))
+                WriteLog(msg + "\n");
         }
 
         private void WriteLog(string msg)
@@ -216,6 +248,15 @@ namespace FolderSyncLib
                 ExcludedPaths.Add(path);
 
             File.WriteAllLines(excludedPathsFilePath, ExcludedPaths);
+        }
+
+        private bool GetBinary(int num, int position)
+        {
+            return string.Join("",Convert.ToString(num, 2).Reverse())[position - 1] == 1 ? true : false;
+        }
+        private bool GetBinary(Logging mode, int position)
+        {
+            return GetBinary((int)mode, position);
         }
     }
 }
