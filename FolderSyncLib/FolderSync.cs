@@ -96,7 +96,7 @@ namespace FolderSyncLib
         {
             SyncFilesystem(SourcePath, DestinationPath);
             OnFinished?.Invoke();
-            if (GetBinary(logLevel, 4))
+            if (GetBinary(logLevel, 3))
                 WriteLog("Sync finished");
         }
 
@@ -105,7 +105,7 @@ namespace FolderSyncLib
             Task sync = new Task(()=>SyncFilesystem(SourcePath, DestinationPath));
             sync.Start();
             OnFinished?.Invoke();
-            if (GetBinary(logLevel, 4))
+            if (GetBinary(logLevel, 3))
                 WriteLog("Sync finished");
 
             return sync;
@@ -128,7 +128,7 @@ namespace FolderSyncLib
                 try
                 {
                     FileSync?.Invoke(file);
-                    if (GetBinary(logLevel, 3))
+                    if (GetBinary(logLevel, 2))
                         WriteLog(file);
 
                     //string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
@@ -159,7 +159,7 @@ namespace FolderSyncLib
                 try
                 {
                     DirectorySync?.Invoke(dir);
-                    if (GetBinary(logLevel, 2))
+                    if (GetBinary(logLevel, 1))
                         WriteLog(dir);
 
                     //string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
@@ -187,7 +187,7 @@ namespace FolderSyncLib
         private void SomeError(string msg)
         {
             OnError?.Invoke(msg);
-            if(GetBinary(logLevel, 1))
+            if(GetBinary(logLevel, 0))
                 WriteLog(msg + "\n");
         }
 
@@ -250,9 +250,15 @@ namespace FolderSyncLib
             File.WriteAllLines(excludedPathsFilePath, ExcludedPaths);
         }
 
+        /// <summary>
+        /// Gets the binary value of a number at a certain position as a boolean.
+        /// </summary>
+        /// <param name="num"></param>
+        /// <param name="position">Starting at 0</param>
+        /// <returns></returns>
         private bool GetBinary(int num, int position)
         {
-            return string.Join("",Convert.ToString(num, 2).Reverse())[position - 1] == 1 ? true : false;
+            return string.Join("",Convert.ToString(num, 2).Reverse())[position] == 1 ? true : false;
         }
         private bool GetBinary(Logging mode, int position)
         {
