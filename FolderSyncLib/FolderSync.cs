@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace FolderSyncLib
@@ -10,10 +11,11 @@ namespace FolderSyncLib
     /// Sets the mode for copying files.
     /// <para>Copy - Only copies files to the new location</para>
     /// <para>CopyAndDelete - Additionally deletes files from the new location if they're not in the source location</para>
+    /// <para>CopyWithVersioning - Like copy but doesn't overwrite files, instead saves the old one with a new name</para>
     /// </summary>
     public enum SyncMode
     {
-        Copy, CopyAndDelete
+        Copy, CopyAndDelete, CopyWithVersioning
     }
 
     public enum Logging
@@ -45,30 +47,40 @@ namespace FolderSyncLib
 
 
 
-        private string excludedPathsFilePath;
+        private List<string> ignoreFile;
+        private string ignoreFilePath;
         private Logging logLevel;
-        public string Name { get; set; }
+        public string Name { get; private set; }
         public string SourcePath { get; private set; }
         public string DestinationPath { get; private set; }
         public SyncMode SyncMode { get; private set; }
-        public List<string> ExcludedPaths { get; private set; }
-
+        public List<string> Ignore { get; private set; }
+        /// <summary>
+        /// Dateformat when CopyWithVerisoning is active. Default: 'yyyyMMddhhmmss'
+        /// </summary>
+        public string Dateformat { get; set; }
 
         /// <summary>
         /// Creates a new instance of the FolderSync.
         /// </summary>
+        /// <param name="name">Same name will load the same config with excluded paths</param>
         /// <param name="source">Source path</param>
         /// <param name="destination">Destination path</param>
+        /// <param name="mode">How shall the files be copied</param>
+        /// <param name="log">Which information shall be written to a log file</param>
         public FolderSync(string name, string source, string destination, SyncMode mode, Logging log = Logging.Error | Logging.Finished)
         {
-            logLevel = log;
             if (name != "")
             {
-                excludedPathsFilePath = name + "_excluded_paths.cfg";
+                ignoreFilePath = name + "_ignore.cfg";
+                if (File.Exists(ignoreFilePath))
+                    AddIgnore(ignoreFilePath);
             }
             else
-                ExcludedPaths = new List<string>();
+                Ignore = new List<string>();
+
             cancel = false;
+
             if (destination.Contains(source))
                 throw new Exception("Destination path can not be located in source path.");
 
@@ -82,11 +94,8 @@ namespace FolderSyncLib
             SourcePath = source;
             DestinationPath = destination;
             SyncMode = mode;
-
-            if (!File.Exists(excludedPathsFilePath))
-                File.Create(excludedPathsFilePath);
-            else
-                ExcludedPaths = File.ReadAllLines(excludedPathsFilePath).Where(x => !x.StartsWith(";")).ToList();
+            logLevel = log;
+            Dateformat = "yyyyMMddhhmmss";
         }
 
         /// <summary>
@@ -100,9 +109,12 @@ namespace FolderSyncLib
                 WriteLog("Sync finished");
         }
 
+        /// <summary>
+        /// Starts the synchronization asynchronous. 
+        /// </summary>
         public Task StartAsync()
         {
-            Task sync = new Task(()=>SyncFilesystem(SourcePath, DestinationPath));
+            Task sync = new Task(() => SyncFilesystem(SourcePath, DestinationPath));
             sync.Start();
             OnFinished?.Invoke();
             if (GetBinary(logLevel, 3))
@@ -112,6 +124,9 @@ namespace FolderSyncLib
         }
 
         private bool cancel;
+        /// <summary>
+        /// Stops the sync 
+        /// </summary>
         public void CancelSync()
         {
             cancel = true;
@@ -121,7 +136,7 @@ namespace FolderSyncLib
         {
             if (cancel)
                 return;
-            foreach (var file in Directory.GetFiles(sourcePath).Where(x=>!ExcludedPaths.Contains(x)))
+            foreach (var file in Directory.GetFiles(sourcePath).Where(x => Ignore.Any(y => Regex.IsMatch(x, y))))
             {
                 if (cancel)
                     return;
@@ -137,8 +152,19 @@ namespace FolderSyncLib
                     if (!File.Exists(newDestFilePath))
                         File.Copy(file, newDestFilePath);
                     else if (new FileInfo(file).LastWriteTimeUtc != new FileInfo(newDestFilePath).LastWriteTimeUtc)
-                        File.Copy(file, newDestFilePath, true);
+                    {
+                        if (SyncMode == SyncMode.CopyWithVersioning)
+                        {
+                            string fileName = Path.GetFileName(newDestFilePath);
+                            string newPath = Path.GetFileNameWithoutExtension(fileName)
+                                + "_"
+                                + new FileInfo(newDestFilePath).LastWriteTimeUtc.ToString(Dateformat)
+                                + Path.GetExtension(fileName);
+                            File.Move(newDestFilePath, newPath);
+                        }
 
+                        File.Copy(file, newDestFilePath, true);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -152,9 +178,9 @@ namespace FolderSyncLib
                     .Select(x => Path.GetFileName(x))
                     .Except(Directory.GetFiles(sourcePath)
                         .Select(x => Path.GetFileName(x))))
-                    File.Delete(Path.Combine(destPath,dir));
+                    File.Delete(Path.Combine(destPath, dir));
 
-            foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => !ExcludedPaths.Contains(x)))
+            foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => Ignore.Any(y => Regex.IsMatch(x, y))))
             {
                 try
                 {
@@ -167,7 +193,7 @@ namespace FolderSyncLib
 
                     if (!Directory.Exists(newDestPath))
                         Directory.CreateDirectory(newDestPath);
-                    
+
                     SyncFilesystem(dir, newDestPath);
                 }
                 catch (Exception e)
@@ -187,7 +213,7 @@ namespace FolderSyncLib
         private void SomeError(string msg)
         {
             OnError?.Invoke(msg);
-            if(GetBinary(logLevel, 0))
+            if (GetBinary(logLevel, 0))
                 WriteLog(msg + "\n");
         }
 
@@ -200,54 +226,64 @@ namespace FolderSyncLib
         /// Excludes path which should not be synced.
         /// </summary>
         /// <param name="paths">Paths</param>
-        public void ExcludePaths(params string[] paths)
+        public void AddIgnore(params string[] regexes)
         {
-            foreach (var path in paths)
+            foreach (var regex in regexes)
             {
-                AddExcludedFiles(path);
+                if (regex != "" && !Ignore.Contains(regex))
+                {
+                    ignoreFile.Add(regex);
+                    Ignore.Add(regex);
+                }
+                UpdateIgnore();
             }
         }
         /// <summary>
         /// Excludes path which should not be synced.
         /// </summary>
         /// <param name="paths">Path to file containing paths in a newline separated list.</param>
-        public void ExcludePaths(string filePath)
+        public void AddIgnore(string filePath)
         {
             if (File.Exists(filePath))
             {
-                ExcludePaths(File.ReadAllLines(filePath));
+                ignoreFilePath = filePath;
+                ignoreFile = File.ReadAllLines(filePath).ToList();
+                AddIgnore(ignoreFile.Where(x => !x.StartsWith(";") && !x.StartsWith("#")).ToArray());
             }
         }
 
         /// <summary>
         /// Removes all excluded paths.
         /// </summary>
-        public void RemoveExcludedPaths()
+        public void RemoveIgnore()
         {
-            ExcludedPaths.Clear();
-            AddExcludedFiles();
+            Ignore.Clear();
+            UpdateIgnore();
         }
 
         /// <summary>
         /// Removes the given excluded paths.
         /// </summary>
         /// <param name="paths"></param>
-        public void RemoveExcludedPaths(params string[] paths)
+        public void RemoveIgnore(params string[] regexes)
         {
-            foreach (var path in paths)
+            foreach (var regex in regexes)
             {
-                if (ExcludedPaths.Contains(path))
-                    ExcludedPaths.Remove(path);
+                if (Ignore.Contains(regex))
+                {
+                    ignoreFile.Remove(regex);
+                    Ignore.Remove(regex);
+                }
             }
-            AddExcludedFiles();
+            UpdateIgnore();
         }
 
-        private void AddExcludedFiles(string path = "")
+        private void UpdateIgnore()
         {
-            if (path != "" && !ExcludedPaths.Contains(path))
-                ExcludedPaths.Add(path);
-
-            File.WriteAllLines(excludedPathsFilePath, ExcludedPaths);
+            if (Name != "")
+            {
+                File.WriteAllLines(ignoreFilePath, ignoreFile);
+            }
         }
 
         /// <summary>
@@ -258,7 +294,7 @@ namespace FolderSyncLib
         /// <returns></returns>
         private bool GetBinary(int num, int position)
         {
-            return string.Join("",Convert.ToString(num, 2).Reverse())[position] == 1 ? true : false;
+            return string.Join("", Convert.ToString(num, 2).Reverse())[position] == 1 ? true : false;
         }
         private bool GetBinary(Logging mode, int position)
         {
