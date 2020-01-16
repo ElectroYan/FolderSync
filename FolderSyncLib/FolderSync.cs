@@ -18,38 +18,16 @@ namespace FolderSyncLib
         Copy, CopyAndDelete, CopyWithVersioning
     }
 
-    public enum Logging
+    public enum LogLevel
     {
-        None = 0, Error = 1, Directory = 2, File = 4, Finished = 8
+        None = 0, Error = 1<<0, Directory = 1<<1, File = 1<<2, Finished = 1<<3
     }
     public class FolderSync
     {
-        public delegate void DirectorySyncing(string path);
-        /// <summary>
-        /// Fires when a new folder starts to sync.
-        /// </summary>
-        public event DirectorySyncing DirectorySync;
-        public delegate void FileSyncing(string path);
-        /// <summary>
-        /// Fires when a new file starts to sync.
-        /// </summary>
-        public event FileSyncing FileSync;
-        public delegate void Error(string msg);
-        /// <summary>
-        /// Fires when an error while copying the file occurs.
-        /// </summary>
-        public event Error OnError;
-        public delegate void Finished();
-        /// <summary>
-        /// Fires once the synchronization is done.
-        /// </summary>
-        public event Finished OnFinished;
+        public delegate void Logging(FolderSync sender, LogLevel logLevel, string msg);
+        public event Logging OnLog;
 
-
-
-        private List<string> ignoreFile;
-        private string ignoreFilePath;
-        private Logging logLevel;
+        private LogLevel logLevel;
         public string Name { get; private set; }
         public string SourcePath { get; private set; }
         public string DestinationPath { get; private set; }
@@ -59,6 +37,7 @@ namespace FolderSyncLib
         /// Dateformat when CopyWithVerisoning is active. Default: 'yyyyMMddhhmmss'
         /// </summary>
         public string Dateformat { get; set; }
+        public bool WriteLogToFile { get; set; }
 
         /// <summary>
         /// Creates a new instance of the FolderSync.
@@ -67,17 +46,9 @@ namespace FolderSyncLib
         /// <param name="source">Source path</param>
         /// <param name="destination">Destination path</param>
         /// <param name="mode">How shall the files be copied</param>
-        /// <param name="log">Which information shall be written to a log file</param>
-        public FolderSync(string name, string source, string destination, SyncMode mode, Logging log = Logging.Error | Logging.Finished)
+        /// <param name="logLevel">Which information shall be written to a log file</param>
+        public FolderSync(string name, string source, string destination, SyncMode mode, LogLevel logLevel = LogLevel.Error | LogLevel.Finished)
         {
-            if (name != "")
-            {
-                ignoreFilePath = name + "_ignore.cfg";
-                if (File.Exists(ignoreFilePath))
-                    AddIgnore(ignoreFilePath);
-            }
-            else
-                Ignore = new List<string>();
 
             cancel = false;
 
@@ -94,7 +65,8 @@ namespace FolderSyncLib
             SourcePath = source;
             DestinationPath = destination;
             SyncMode = mode;
-            logLevel = log;
+            this.logLevel = logLevel;
+            Ignore = new List<string>();
             Dateformat = "yyyyMMddhhmmss";
         }
 
@@ -104,9 +76,8 @@ namespace FolderSyncLib
         public void Start()
         {
             SyncFilesystem(SourcePath, DestinationPath);
-            OnFinished?.Invoke();
             if (GetBinary(logLevel, 3))
-                WriteLog("Sync finished");
+                WriteLog(LogLevel.Finished, "Sync finished");
         }
 
         /// <summary>
@@ -116,9 +87,6 @@ namespace FolderSyncLib
         {
             Task sync = new Task(() => SyncFilesystem(SourcePath, DestinationPath));
             sync.Start();
-            OnFinished?.Invoke();
-            if (GetBinary(logLevel, 3))
-                WriteLog("Sync finished");
 
             return sync;
         }
@@ -136,15 +104,14 @@ namespace FolderSyncLib
         {
             if (cancel)
                 return;
-            foreach (var file in Directory.GetFiles(sourcePath).Where(x => Ignore.Any(y => Regex.IsMatch(x, y))))
+            foreach (var file in Directory.GetFiles(sourcePath).Where(x => !Ignore.Any(y => Regex.IsMatch(x, y))))
             {
                 if (cancel)
                     return;
                 try
                 {
-                    FileSync?.Invoke(file);
                     if (GetBinary(logLevel, 2))
-                        WriteLog(file);
+                        WriteLog(LogLevel.File, file);
 
                     //string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
                     string newDestFilePath = file.Replace(sourcePath, destPath);
@@ -180,13 +147,12 @@ namespace FolderSyncLib
                         .Select(x => Path.GetFileName(x))))
                     File.Delete(Path.Combine(destPath, dir));
 
-            foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => Ignore.Any(y => Regex.IsMatch(x, y))))
+            foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => !Ignore.Any(y => Regex.IsMatch(x, y))))
             {
                 try
                 {
-                    DirectorySync?.Invoke(dir);
                     if (GetBinary(logLevel, 1))
-                        WriteLog(dir);
+                        WriteLog(LogLevel.Directory, dir);
 
                     //string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
                     string newDestPath = dir.Replace(sourcePath, destPath);
@@ -201,6 +167,7 @@ namespace FolderSyncLib
                     SomeError(dir + " " + e.Message);
                 }
             }
+
             //Removes all directories only present in the destination location
             if (SyncMode == SyncMode.CopyAndDelete)
                 foreach (var dir in Directory.GetDirectories(destPath)
@@ -212,14 +179,15 @@ namespace FolderSyncLib
 
         private void SomeError(string msg)
         {
-            OnError?.Invoke(msg);
             if (GetBinary(logLevel, 0))
-                WriteLog(msg + "\n");
+                WriteLog(LogLevel.Error, msg + "\n");
         }
 
-        private void WriteLog(string msg)
+        private void WriteLog(LogLevel logLevel, string msg)
         {
-            File.AppendAllText("log.txt", "[" + DateTime.Now.ToLongTimeString() + "] " + msg);
+            if (WriteLogToFile)
+                File.AppendAllText("log.txt", "[" + DateTime.Now.ToLongTimeString() + "] " + msg);
+            OnLog?.Invoke(this, logLevel, msg);
         }
 
         /// <summary>
@@ -229,14 +197,8 @@ namespace FolderSyncLib
         public void AddIgnore(params string[] regexes)
         {
             foreach (var regex in regexes)
-            {
                 if (regex != "" && !Ignore.Contains(regex))
-                {
-                    ignoreFile.Add(regex);
                     Ignore.Add(regex);
-                }
-                UpdateIgnore();
-            }
         }
         /// <summary>
         /// Excludes path which should not be synced.
@@ -245,11 +207,7 @@ namespace FolderSyncLib
         public void AddIgnore(string filePath)
         {
             if (File.Exists(filePath))
-            {
-                ignoreFilePath = filePath;
-                ignoreFile = File.ReadAllLines(filePath).ToList();
-                AddIgnore(ignoreFile.Where(x => !x.StartsWith(";") && !x.StartsWith("#")).ToArray());
-            }
+                AddIgnore(File.ReadAllLines(filePath).Where(x => !x.StartsWith(";") && !x.StartsWith("#")).ToArray());
         }
 
         /// <summary>
@@ -258,7 +216,6 @@ namespace FolderSyncLib
         public void RemoveIgnore()
         {
             Ignore.Clear();
-            UpdateIgnore();
         }
 
         /// <summary>
@@ -268,22 +225,8 @@ namespace FolderSyncLib
         public void RemoveIgnore(params string[] regexes)
         {
             foreach (var regex in regexes)
-            {
                 if (Ignore.Contains(regex))
-                {
-                    ignoreFile.Remove(regex);
                     Ignore.Remove(regex);
-                }
-            }
-            UpdateIgnore();
-        }
-
-        private void UpdateIgnore()
-        {
-            if (Name != "")
-            {
-                File.WriteAllLines(ignoreFilePath, ignoreFile);
-            }
         }
 
         /// <summary>
@@ -296,7 +239,7 @@ namespace FolderSyncLib
         {
             return string.Join("", Convert.ToString(num, 2).Reverse())[position] == 1 ? true : false;
         }
-        private bool GetBinary(Logging mode, int position)
+        private bool GetBinary(LogLevel mode, int position)
         {
             return GetBinary((int)mode, position);
         }
