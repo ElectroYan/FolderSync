@@ -27,17 +27,23 @@ namespace FolderSyncLib
         public delegate void Logging(FolderSync sender, LogLevel logLevel, string msg);
         public event Logging OnLog;
 
-        private LogLevel logLevel;
-        public string Name { get; private set; }
-        public string SourcePath { get; private set; }
-        public string DestinationPath { get; private set; }
-        public SyncMode SyncMode { get; private set; }
+        public string Name { get; set; }
+        public string SourcePath { get; set; }
+        public string DestinationPath { get; set; }
+        public SyncMode SyncMode { get; set; }
         public List<string> Ignore { get; private set; }
         /// <summary>
         /// Dateformat when CopyWithVerisoning is active. Default: 'yyyyMMddhhmmss'
         /// </summary>
         public string Dateformat { get; set; }
+        /// <summary>
+        /// Default: True
+        /// </summary>
         public bool WriteLogToFile { get; set; }
+        /// <summary>
+        /// Default: 9 (Error, Finished)
+        /// </summary>
+        public LogLevel LogLevel { get; set; }
 
         /// <summary>
         /// Creates a new instance of the FolderSync.
@@ -65,9 +71,10 @@ namespace FolderSyncLib
             SourcePath = source;
             DestinationPath = destination;
             SyncMode = mode;
-            this.logLevel = logLevel;
+            this.LogLevel = logLevel;
             Ignore = new List<string>();
             Dateformat = "yyyyMMddhhmmss";
+            WriteLogToFile = true;
         }
 
         /// <summary>
@@ -76,7 +83,7 @@ namespace FolderSyncLib
         public void Start()
         {
             SyncFilesystem(SourcePath, DestinationPath);
-            if (GetBinary(logLevel, 3))
+            if (GetBinary(LogLevel, 3))
                 WriteLog(LogLevel.Finished, "Sync finished");
         }
 
@@ -110,7 +117,7 @@ namespace FolderSyncLib
                     return;
                 try
                 {
-                    if (GetBinary(logLevel, 2))
+                    if (GetBinary(LogLevel, 2))
                         WriteLog(LogLevel.File, file);
 
                     //string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
@@ -151,7 +158,7 @@ namespace FolderSyncLib
             {
                 try
                 {
-                    if (GetBinary(logLevel, 1))
+                    if (GetBinary(LogLevel, 1))
                         WriteLog(LogLevel.Directory, dir);
 
                     //string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
@@ -179,19 +186,19 @@ namespace FolderSyncLib
 
         private void SomeError(string msg)
         {
-            if (GetBinary(logLevel, 0))
+            if (GetBinary(LogLevel, 0))
                 WriteLog(LogLevel.Error, msg + "\n");
         }
 
         private void WriteLog(LogLevel logLevel, string msg)
         {
             if (WriteLogToFile)
-                File.AppendAllText("log.txt", "[" + DateTime.Now.ToLongTimeString() + "] " + msg);
+                File.AppendAllText("log.txt", "[" + DateTime.Now.ToLongTimeString() + "] " + Name + " - " + logLevel.ToString() + "> " + msg);
             OnLog?.Invoke(this, logLevel, msg);
         }
 
         /// <summary>
-        /// Excludes path which should not be synced.
+        /// Conditions for files/fodlers which should not be synced.
         /// </summary>
         /// <param name="paths">Paths</param>
         public void AddIgnore(params string[] regexes)
@@ -201,9 +208,9 @@ namespace FolderSyncLib
                     Ignore.Add(regex);
         }
         /// <summary>
-        /// Excludes path which should not be synced.
+        /// Conditions for files/fodlers which should not be synced.
         /// </summary>
-        /// <param name="paths">Path to file containing paths in a newline separated list.</param>
+        /// <param name="paths">Path to file containing regexes in a newline separated list.</param>
         public void AddIgnore(string filePath)
         {
             if (File.Exists(filePath))
@@ -211,7 +218,7 @@ namespace FolderSyncLib
         }
 
         /// <summary>
-        /// Removes all excluded paths.
+        /// Removes all regexes.
         /// </summary>
         public void RemoveIgnore()
         {
@@ -219,7 +226,7 @@ namespace FolderSyncLib
         }
 
         /// <summary>
-        /// Removes the given excluded paths.
+        /// Removes the given regexes.
         /// </summary>
         /// <param name="paths"></param>
         public void RemoveIgnore(params string[] regexes)
@@ -237,7 +244,7 @@ namespace FolderSyncLib
         /// <returns></returns>
         private bool GetBinary(int num, int position)
         {
-            return string.Join("", Convert.ToString(num, 2).Reverse())[position] == 1 ? true : false;
+            return string.Join("", Convert.ToString(num, 2).Reverse())[position] == '1' ? true : false;
         }
         private bool GetBinary(LogLevel mode, int position)
         {
