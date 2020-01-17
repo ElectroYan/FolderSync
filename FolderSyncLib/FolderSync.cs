@@ -84,7 +84,7 @@ namespace FolderSyncLib
         {
             SyncFilesystem(SourcePath, DestinationPath);
             if (GetBinary(LogLevel, 3))
-                WriteLog(LogLevel.Finished, "Sync finished");
+                OnLog?.Invoke(this, LogLevel.Finished, "Sync finished");
         }
 
         /// <summary>
@@ -118,7 +118,7 @@ namespace FolderSyncLib
                 try
                 {
                     if (GetBinary(LogLevel, 2))
-                        WriteLog(LogLevel.File, file);
+                        OnLog?.Invoke(this, LogLevel.File, file);
 
                     string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
                     //string newDestFilePath = file.Replace(sourcePath, destPath);
@@ -142,7 +142,8 @@ namespace FolderSyncLib
                 }
                 catch (Exception e)
                 {
-                    SomeError(file + " " + e.Message);
+                    if (GetBinary(LogLevel, 0))
+                        OnLog?.Invoke(this, LogLevel.Error, file + " " + e.Message);
                 }
             }
 
@@ -155,7 +156,7 @@ namespace FolderSyncLib
                 {
                     File.Delete(Path.Combine(destPath, file));
                     if (GetBinary(LogLevel, 4))
-                        WriteLog(LogLevel.FileDeleted, Path.Combine(destPath, file));
+                        OnLog?.Invoke(this, LogLevel.FileDeleted, Path.Combine(destPath, file));
                 }
 
             foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => !Ignore.Any(y => Regex.IsMatch(x, y))))
@@ -163,7 +164,7 @@ namespace FolderSyncLib
                 try
                 {
                     if (GetBinary(LogLevel, 1))
-                        WriteLog(LogLevel.Directory, dir);
+                        OnLog?.Invoke(this, LogLevel.Directory, dir);
 
                     string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
                     //string newDestPath = dir.Replace(sourcePath, destPath);
@@ -175,7 +176,8 @@ namespace FolderSyncLib
                 }
                 catch (Exception e)
                 {
-                    SomeError(dir + " " + e.Message);
+                    if (GetBinary(LogLevel, 0))
+                        OnLog?.Invoke(this, LogLevel.Error, dir + " " + e.Message);
                 }
             }
 
@@ -188,19 +190,8 @@ namespace FolderSyncLib
                 {
                     Directory.Delete(Path.Combine(destPath, dir), true);
                     if (GetBinary(LogLevel, 5))
-                        WriteLog(LogLevel.DirectoryDeleted, Path.Combine(destPath, dir));
+                        OnLog?.Invoke(this, LogLevel.DirectoryDeleted, Path.Combine(destPath, dir));
                 }
-        }
-
-        private void SomeError(string msg)
-        {
-            if (GetBinary(LogLevel, 0))
-                WriteLog(LogLevel.Error, msg + "\n");
-        }
-
-        private void WriteLog(LogLevel logLevel, string msg)
-        {
-            OnLog?.Invoke(this, logLevel, msg);
         }
 
         /// <summary>
