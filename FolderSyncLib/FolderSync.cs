@@ -20,7 +20,7 @@ namespace FolderSyncLib
 
     public enum LogLevel
     {
-        None = 0, Error = 1<<0, Directory = 1<<1, File = 1<<2, Finished = 1<<3
+        None = 0, Error = 1<<0, Directory = 1<<1, File = 1<<2, Finished = 1<<3, FileDeleted = 1<<4, DirectoryDeleted = 1<<5
     }
     public class FolderSync
     {
@@ -120,8 +120,8 @@ namespace FolderSyncLib
                     if (GetBinary(LogLevel, 2))
                         WriteLog(LogLevel.File, file);
 
-                    //string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
-                    string newDestFilePath = file.Replace(sourcePath, destPath);
+                    string newDestFilePath = Path.Combine(destPath, Path.GetFileName(file));
+                    //string newDestFilePath = file.Replace(sourcePath, destPath);
 
                     if (!File.Exists(newDestFilePath))
                         File.Copy(file, newDestFilePath);
@@ -148,11 +148,15 @@ namespace FolderSyncLib
 
             //Removes all files only present in the destination location
             if (SyncMode == SyncMode.CopyAndDelete)
-                foreach (var dir in Directory.GetFiles(destPath)
+                foreach (var file in Directory.GetFiles(destPath)
                     .Select(x => Path.GetFileName(x))
                     .Except(Directory.GetFiles(sourcePath)
                         .Select(x => Path.GetFileName(x))))
-                    File.Delete(Path.Combine(destPath, dir));
+                {
+                    File.Delete(Path.Combine(destPath, file));
+                    if (GetBinary(LogLevel, 4))
+                        WriteLog(LogLevel.FileDeleted, Path.Combine(destPath, file));
+                }
 
             foreach (var dir in Directory.GetDirectories(sourcePath).Where(x => !Ignore.Any(y => Regex.IsMatch(x, y))))
             {
@@ -161,8 +165,8 @@ namespace FolderSyncLib
                     if (GetBinary(LogLevel, 1))
                         WriteLog(LogLevel.Directory, dir);
 
-                    //string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
-                    string newDestPath = dir.Replace(sourcePath, destPath);
+                    string newDestPath = Path.Combine(destPath, Path.GetFileName(dir));
+                    //string newDestPath = dir.Replace(sourcePath, destPath);
 
                     if (!Directory.Exists(newDestPath))
                         Directory.CreateDirectory(newDestPath);
@@ -181,7 +185,11 @@ namespace FolderSyncLib
                     .Select(x => Path.GetFileName(x))
                     .Except(Directory.GetDirectories(sourcePath)
                         .Select(x => Path.GetFileName(x))))
+                {
                     Directory.Delete(Path.Combine(destPath, dir), true);
+                    if (GetBinary(LogLevel, 5))
+                        WriteLog(LogLevel.DirectoryDeleted, Path.Combine(destPath, dir));
+                }
         }
 
         private void SomeError(string msg)
@@ -192,8 +200,6 @@ namespace FolderSyncLib
 
         private void WriteLog(LogLevel logLevel, string msg)
         {
-            if (WriteLogToFile)
-                File.AppendAllText("log.txt", "[" + DateTime.Now.ToLongTimeString() + "] " + Name + " - " + logLevel.ToString() + "> " + msg);
             OnLog?.Invoke(this, logLevel, msg);
         }
 
