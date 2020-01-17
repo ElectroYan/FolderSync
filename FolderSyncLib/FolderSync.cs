@@ -37,10 +37,6 @@ namespace FolderSyncLib
         /// </summary>
         public string Dateformat { get; set; }
         /// <summary>
-        /// Default: True
-        /// </summary>
-        public bool WriteLogToFile { get; set; }
-        /// <summary>
         /// Default: 9 (Error, Finished)
         /// </summary>
         public LogLevel LogLevel { get; set; }
@@ -107,6 +103,11 @@ namespace FolderSyncLib
             cancel = true;
         }
 
+        /// <summary>
+        /// Actual method syncing all files
+        /// </summary>
+        /// <param name="sourcePath"></param>
+        /// <param name="destPath"></param>
         private void SyncFilesystem(string sourcePath, string destPath)
         {
             if (cancel)
@@ -243,6 +244,12 @@ namespace FolderSyncLib
         {
             return string.Join("", Convert.ToString(num, 2).Reverse())[position] == '1' ? true : false;
         }
+        /// <summary>
+        /// Gets the binary value of the log level at a certain position as a boolean.
+        /// </summary>
+        /// <param name="mode"></param>
+        /// <param name="position">Starting at 0</param>
+        /// <returns></returns>
         private bool GetBinary(LogLevel mode, int position)
         {
             return GetBinary((int)mode, position);
