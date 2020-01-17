@@ -70,7 +70,6 @@ namespace FolderSyncLib
             this.LogLevel = logLevel;
             Ignore = new List<string>();
             Dateformat = "yyyyMMddhhmmss";
-            WriteLogToFile = true;
         }
 
         /// <summary>
